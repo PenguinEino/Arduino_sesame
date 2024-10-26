@@ -1,4 +1,4 @@
-#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+#define LOG_LOCAL_LEVEL ESP_LOG_INFO
 #include "ssm_cmd.h"
 #include "aes-cbc-cmac.h"
 #include "esp_log.h"

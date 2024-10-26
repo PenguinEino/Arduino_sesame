@@ -1,4 +1,4 @@
-#define LOG_LOCAL_LEVEL  ESP_LOG_DEBUG  // this overrides CONFIG_LOG_MAXIMUM_LEVEL setting in menuconfig
+// #define LOG_LOCAL_LEVEL  ESP_LOG_INFO  // this overrides CONFIG_LOG_MAXIMUM_LEVEL setting in menuconfig
 #include "esp_log.h"
 #include <NimBLEDevice.h>
 #include "candy.h"
@@ -7,15 +7,15 @@
 
 static const char * TAG = "sesame5_ble.ino";
 
-uint8_t ssm_address_u[] = {0xC7, 0x83, 0x84, 0x39, 0x61, 0xBA}; //{0xba, 0x61, 0x39, 0x84, 0x83, 0xc7}
+
+uint8_t ssm_address_u[] = {0xC7, 0x83, 0x84, 0x39, 0x61, 0xBA}; // 接続する sesame のアドレスを記述
+uint8_t ssm_target_secret[] = {0xa7, 0x5d, 0xbc, 0xcf, 0xcd, 0xcc, 0xed, 0xdd, 0x39, 0xbd, 0x82, 0x81, 0xf1, 0x14, 0xc9, 0x9d}; // 接続する sesame のシークレットキーを記述
 uint8_t ssm_chr_uuid_u[] = {0x3e, 0x99, 0x76, 0xc6, 0xb4, 0xdb, 0xd3, 0xb6, 0x56, 0x98, 0xae, 0xa5, 0x02, 0x00, 0x86, 0x16};
 uint8_t ssm_ntf_uuid_u[] = {0x3e, 0x99, 0x76, 0xc6, 0xb4, 0xdb, 0xd3, 0xb6, 0x56, 0x98, 0xae, 0xa5, 0x03, 0x00, 0x86, 0x16};
-uint8_t ssm_target_addr[] = {0xC7, 0x83, 0x84, 0x39, 0x61, 0xBA}; //{0xba, 0x61, 0x39, 0x84, 0x83, 0xc7}; // 接続する ssm のアドレスを逆順に記述
-uint8_t ssm_target_secret[] = {0xa7, 0x5d, 0xbc, 0xcf, 0xcd, 0xcc, 0xed, 0xdd, 0x39, 0xbd, 0x82, 0x81, 0xf1, 0x14, 0xc9, 0x9d}; // 接続する ssm のシークレットキーを記述
 
-
+// https://github.com/CANDY-HOUSE/Sesame_BluetoothAPI_document/blob/master/SesameOS3/1_advertising.md
 static NimBLEAddress ssm_address(ssm_address_u);
-static NimBLEUUID ssm_svc_uuid((uint16_t)0xFD81); // https://github.com/CANDY-HOUSE/Sesame_BluetoothAPI_document/blob/master/SesameOS3/1_advertising.md
+static NimBLEUUID ssm_svc_uuid((uint16_t)0xFD81); 
 static NimBLEUUID ssm_chr_uuid(ssm_chr_uuid_u, sizeof(ssm_chr_uuid_u)/sizeof(ssm_chr_uuid_u[0]), false);
 static NimBLEUUID ssm_ntf_uuid(ssm_ntf_uuid_u, sizeof(ssm_ntf_uuid_u)/sizeof(ssm_ntf_uuid_u[0]), false);
 static NimBLEUUID ssm_dsc_uuid((uint16_t)0x2902);
@@ -38,7 +38,7 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
 
     // SesameSDKではアドバタイズの受信を一度パースする関数を挟むが、ArduinoIDEは不要。直接パース済みの内容を渡してくれる。（NimBLEAdvertisedDevice）
     void onResult(NimBLEAdvertisedDevice* advertisedDevice) {
-        Serial.println(advertisedDevice->toString().c_str());
+        ESP.LOGI(TAG, "%s", advertisedDevice->toString().c_str());
 
         NimBLEAddress addr = advertisedDevice->getAddress(); // addr https://h2zero.github.io/esp-nimble-cpp/class_nim_b_l_e_address.html
         const char* mfg_data = (advertisedDevice->getManufacturerData()).c_str();
@@ -46,15 +46,14 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
         // manufacturedata を見て sesame か判別する。
         // https://github.com/CANDY-HOUSE/Sesame_BluetoothAPI_document/blob/master/SesameOS3/1_advertising.md
         if(mfg_data[0] == 0x5A && mfg_data[1] == 0x05){ // is sesame
-          Serial.printf("Find Sesame");
           if(mfg_data[2] == 0x05){ // is sesame 5
-            Serial.printf("5\n");
+            ESP_LOGD(TAG, "Find Sesame 5");
             if(addr.equals(ssm_address)){ // is target sesame
-              Serial.printf("that is target\n");
+              ESP_LOGD(TAG, "Match the registered address");
               if (mfg_data[4] == 0x00) {                            // is unregistered
-                  Serial.printf("find unregistered SSM[%d] : %s\n", mfg_data[2], addr.toString().c_str());
+                  ESP_LOGD(TAG, "find unregistered SSM[%d] : %s", mfg_data[2], addr.toString().c_str());
               } else { // registered SSM
-                  Serial.printf("find registered SSM[%d]\n", mfg_data[2]);
+                  ESP_LOGD(TAG, "find registered SSM[%d]", mfg_data[2]);
 
                   NimBLEDevice::getScan()->stop();
                   advDevice = advertisedDevice;
@@ -62,7 +61,7 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
               }
             }
           } else {
-            Serial.printf("\n");
+            ESP_LOGD(TAG, "Find a Sesame device (not 5)");
           }
         }
         return;
@@ -72,25 +71,13 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
 
 /** Notification / Indication receiving handler callback */
 void notifyCB(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* pData, size_t length, bool isNotify){
-    Serial.printf("notify received\n");
-    // std::string str = (isNotify == true) ? "Notification" : "Indication";
-    // str += " from ";
-    // /** NimBLEAddress and NimBLEUUID have std::string operators */
-    // str += std::string(pRemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress());
-    // str += ": Service = " + std::string(pRemoteCharacteristic->getRemoteService()->getUUID());
-    // str += ", Characteristic = " + std::string(pRemoteCharacteristic->getUUID());
-    // str += ", Value = " + std::string((char*)pData, length);
-    // Serial.println(str.c_str());
-
-    Serial.printf("\n");
-    for(int i=0; i<length; i++){
-      Serial.printf("%X", pData[i]);
-    }
-    Serial.printf("\n");
-
-    // uint8_t buffer[] = {0x01, 0x02};
-    // esp_ble_gatt_write(&p_ssms_env->ssm, buffer , 2);
-    
+    std::string str = (isNotify == true) ? "Notification" : "Indication";
+    str += " from ";
+    /** NimBLEAddress and NimBLEUUID have std::string operators */
+    str += std::string(pRemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress());
+    str += ": Service = " + std::string(pRemoteCharacteristic->getRemoteService()->getUUID());
+    str += ", Characteristic = " + std::string(pRemoteCharacteristic->getUUID());
+    ESP_LOGD(TAG, "%s", str.c_str());
 
     ssm_ble_receiver(&p_ssms_env->ssm, pData, length);
 }
@@ -98,7 +85,7 @@ void notifyCB(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* pData,
 
 /** Callback to process the results of the last scan or restart it */
 void scanEndedCB(NimBLEScanResults results){
-    Serial.println("Scan Ended");
+    ESP_LOGD(TAG, "Scan Ended");
 }
 
 
@@ -106,19 +93,20 @@ void scanEndedCB(NimBLEScanResults results){
  **                       Remove as you see fit for your needs                        */
 class ClientCallbacks : public NimBLEClientCallbacks {
     void onConnect(NimBLEClient* pClient) {
-        Serial.println("Connected");
+        ESP_LOGD(TAG, "Connected");
         /** After connection we should change the parameters if we don't need fast response times.
          *  These settings are 150ms interval, 0 latency, 450ms timout.
          *  Timeout should be a multiple of the interval, minimum is 100ms.
          *  I find a multiple of 3-5 * the interval works best for quick response/reconnect.
          *  Min interval: 120 * 1.25ms = 150, Max interval: 120 * 1.25ms = 150, 0 latency, 60 * 10ms = 600ms timeout
          */
+         
         pClient->updateConnParams(120,120,0,60);
     };
 
     void onDisconnect(NimBLEClient* pClient) {
-        Serial.print(pClient->getPeerAddress().toString().c_str());
-        Serial.println(" Disconnected - Starting scan");
+        ESP_LOGD(TAG, "%s", pClient->getPeerAddress().toString().c_str());
+        ESP_LOGD(TAG, " Disconnected - Starting scan");
         NimBLEDevice::getScan()->start(scanTime, scanEndedCB);
     };
 
@@ -137,33 +125,51 @@ class ClientCallbacks : public NimBLEClientCallbacks {
         //     return false;
         // }
 
+        // 接続パラメーターのリクエストは全て受け入れる
         return true;
     };
 };
 
-
+// 特に使わない
 static ClientCallbacks clientCB;
-
 
 // 接続をする関数
 // NimBLEDevice : BLEデバイス全般に関するクラス : https://h2zero.github.io/esp-nimble-cpp/class_nim_b_l_e_device.html
-// NimBLEClient : 接続するデバイスに関するクラス。デバイスが上層にあるイメージ？ : https://h2zero.github.io/esp-nimble-cpp/class_nim_b_l_e_client.html
+// NimBLEClient : 接続するデバイスに関するクラス。デバイスが上層にある。 : https://h2zero.github.io/esp-nimble-cpp/class_nim_b_l_e_client.html
 bool connectToServer() {
+    /** Check if we have a client we should reuse first **/
+    if(NimBLEDevice::getClientListSize()) {
+        /** Special case when we already know this device, we send false as the
+         *  second argument in connect() to prevent refreshing the service database.
+         *  This saves considerable time and power.
+         */
+        pClient = NimBLEDevice::getClientByPeerAddress(advDevice->getAddress());
+        if(pClient){
+            if(!pClient->connect(advDevice, false)) {
+                ESP_LOGE(TAG, "Reconnect failed");
+                return false;
+            }
+            ESP_LOGD(TAG, "Reconnected client");
+        }
+        /** We don't already have a client that knows this device,
+         *  we will check for a client that is disconnected that we can use.
+         */
+        else {
+            pClient = NimBLEDevice::getDisconnectedClient();
+        }
+    }
+
     if(!pClient) {
         if(NimBLEDevice::getClientListSize() >= NIMBLE_MAX_CONNECTIONS) {
-            Serial.println("Max clients reached - no more connections available");
+            ESP_LOGD(TAG, "Max clients reached - no more connections available");
             return false;
         }
 
         pClient = NimBLEDevice::createClient();
-
-        Serial.println("New client created");
-
+        ESP_LOGD(TAG, "New client created");
         // イベントを受信したときに呼び出されるコールバック。SesameSDKでの ble_gap_event_connect_handle に相当
         // https://h2zero.github.io/esp-nimble-cpp/class_nim_b_l_e_client_callbacks.html
-
         pClient->setClientCallbacks(&clientCB, false);
-
         // https://h2zero.github.io/esp-nimble-cpp/class_nim_b_l_e_client.html#a17718339f76eb621db0d7919c73b9267
         //  Min interval: 12 * 1.25ms = 15, Max interval: 12 * 1.25ms = 15, 0 latency, 51 * 10ms = 510ms timeout
         pClient->setConnectionParams(240,400,0, 600);
@@ -173,26 +179,19 @@ bool connectToServer() {
 
         if (!pClient->connect(advDevice)) { // 接続失敗
             NimBLEDevice::deleteClient(pClient); // peer から削除
-            Serial.println("Failed to connect, deleted client");
+            ESP_LOGE(TAG, "Failed to connect, deleted client");
             return false;
         }
     }
 
-    if(!pClient->isConnected()) { // 接続に失敗している。（切断された）
+    if(!pClient->isConnected()) {
         if (!pClient->connect(advDevice)) {
-            Serial.println("Failed to connect");
+            ESP_LOGE(TAG, "Failed to connect");
             return false;
         }
     }
 
-
-    Serial.print("Connected to: ");
-    Serial.println(pClient->getPeerAddress().toString().c_str());
-    Serial.print("RSSI: ");
-    Serial.println(pClient->getRssi());
-
-    
-
+    ESP_LOGD(TAG, "Connected to %s, RSSI:%d", pClient->getPeerAddress().toString().c_str(), pClient->getRssi());
     p_ssms_env->ssm.device_status = SSM_CONNECTED;        // set the device status
     p_ssms_env->ssm.conn_id = pClient->getConnId(); // save the connection handle
 
@@ -204,11 +203,8 @@ int ssm_enable_notify(void){
     NimBLERemoteService* pSvc = nullptr;
     NimBLERemoteCharacteristic* pChr = nullptr;
     NimBLERemoteCharacteristic* pChr_w = nullptr;
-    NimBLERemoteDescriptor* pDsc = nullptr;
 
     int rc;
-    // descriptor に 以下の値を書き込むと notify が有効化されるらしい。成功すると descriptor の value が Notifications enabled になる。
-    uint8_t value[2] = { 0x01, 0x00 };
 
     pSvc = pClient->getService(ssm_svc_uuid);
     if(!pSvc){
@@ -231,31 +227,18 @@ int ssm_enable_notify(void){
     ssm_chr_handle = pChr_w->getHandle();
     ESP_LOGD(TAG, "Characteristic handle: %d\n", ssm_chr_handle);
 
-
-    // Descriptor に値を書き込んで notify を有効化する場合は以下のように 0x01, 0x00 を書き込む
-    // pDsc = pChr->getDescriptor(ssm_dsc_uuid);
-    // if(!pDsc){
-    //   ESP_LOGE(TAG, "failed to get descriptor");
-    //   goto err;
-    // }
-
-    // rc = pDsc->writeValue(value, true);
-    // if(!rc){
-    //   ESP_LOGE(TAG, "failed to write to descriptor");
-    //   goto err;
-    // }
-
     rc = pChr->subscribe(true, notifyCB, true);
     if(!rc){
-      ESP_LOGE.printf("TAG, failed to subscribe to characteristic");
+      ESP_LOGE(TAG, "failed to subscribe to characteristic");
       goto err;
     }
 
-    ESP_LOGI(TAG, "Enable notify Succesfully!");
+    ESP_LOGD(TAG, "Enable notify Succesfully!");
 
 
     return 1;
 err:
+    ESP_LOGE(TAG, "Disconnect from sesame");
     return pClient->disconnect();
 }
 
@@ -304,19 +287,15 @@ void esp_ble_gatt_write(sesame * ssm, uint8_t * value, uint16_t length) {
       ESP_LOGE(TAG, "failed to get characteristic");
       goto err;
     }
-
-    ESP_LOGI(TAG, "%s", pChr->toString().c_str());
-
-    // for(int i=0; i<length; i++){
-    //   Serial.printf("%02X,", value[i]);
-    // }
-    // Serial.printf("\n");
+    ESP_LOGD(TAG, "%s", pChr->toString().c_str());
 
     // write charasteristic への書き込みは、responseがされない。戻り値は必ず1になるので、エラーと処理してはいけない。（たぶん）
     pChr->writeValue(value, length, false);
     return;
 err:
-    return pClient->disconnect();
+    ESP_LOGE(TAG, "Disconnect from sesame");
+    pClient->disconnect();
+    return;
 }
 
 
@@ -330,10 +309,9 @@ static void ssm_action_handle(sesame * ssm) {
 
 void setup (){
     Serial.begin(115200);
-    Serial.println("Starting NimBLE Client");
-    esp_log_level_set(TAG, ESP_LOG_VERBOSE);
+    // esp_log_level_set(TAG, ESP_LOG_);
     ssm_init(ssm_action_handle);
-    memcpy(p_ssms_env->ssm.addr, ssm_target_addr, 6);
+    memcpy(p_ssms_env->ssm.addr, ssm_address_u, 6);
     memcpy(p_ssms_env->ssm.device_secret, ssm_target_secret, 16);
     esp_ble_init();
 }
@@ -348,11 +326,11 @@ void loop (){
     doConnect = false;
 
     // 接続する
-    ESP_LOGI(TAG, "Connect SSM addr=%s addrType=%d\n", advDevice->getAddress().toString().c_str(), advDevice->getAddressType());
+    ESP_LOGD(TAG, "Connect SSM addr=%s addrType=%d\n", advDevice->getAddress().toString().c_str(), advDevice->getAddressType());
     if(connectToServer()) {
         ssm_enable_notify();
     } else {
-        Serial.println("Failed to connect, starting scan");
+        ESP_LOGE(TAG, "Failed to connect, starting scan");
         NimBLEDevice::getScan()->start(scanTime, scanEndedCB);
     }
 
