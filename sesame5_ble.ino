@@ -38,7 +38,7 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
 
     // SesameSDKではアドバタイズの受信を一度パースする関数を挟むが、ArduinoIDEは不要。直接パース済みの内容を渡してくれる。（NimBLEAdvertisedDevice）
     void onResult(NimBLEAdvertisedDevice* advertisedDevice) {
-        ESP.LOGI(TAG, "%s", advertisedDevice->toString().c_str());
+        ESP_LOGI(TAG, "%s", advertisedDevice->toString().c_str());
 
         NimBLEAddress addr = advertisedDevice->getAddress(); // addr https://h2zero.github.io/esp-nimble-cpp/class_nim_b_l_e_address.html
         const char* mfg_data = (advertisedDevice->getManufacturerData()).c_str();
