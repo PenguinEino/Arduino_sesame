@@ -21,8 +21,6 @@ static void ssm_initial_handle(sesame * ssm, uint8_t cmd_it_code) {
     ssm->cipher.encrypt.count = 0;
     ssm->cipher.decrypt.count = 0;
 
-    // ESP_LOGI(TAG, "[random_code] %x%x%x%x", ssm->cipher.encrypt.random_code[0], ssm->cipher.encrypt.random_code[1], ssm->cipher.encrypt.random_code[2], ssm->cipher.encrypt.random_code[3]);
-
     if (p_ssms_env->ssm.device_secret[0] == 0) {
         ESP_LOGI(TAG, "[ssm][no device_secret]");
         send_reg_cmd_to_ssm(ssm);

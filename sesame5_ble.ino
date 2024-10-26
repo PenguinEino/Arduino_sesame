@@ -26,6 +26,7 @@ void scanEndedCB(NimBLEScanResults results);
 static NimBLEAdvertisedDevice* advDevice;
 // 接続した sesame 5 を登録する
 static NimBLEClient* pClient = nullptr;
+uint16_t ssm_chr_handle;
 
 static bool doConnect = false;
 static uint32_t scanTime = 0; /** 0 = scan forever */
@@ -86,6 +87,9 @@ void notifyCB(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* pData,
       Serial.printf("%X", pData[i]);
     }
     Serial.printf("\n");
+
+    // uint8_t buffer[] = {0x01, 0x02};
+    // esp_ble_gatt_write(&p_ssms_env->ssm, buffer , 2);
     
 
     ssm_ble_receiver(&p_ssms_env->ssm, pData, length);
@@ -123,15 +127,15 @@ class ClientCallbacks : public NimBLEClientCallbacks {
      *  the currently used parameters. Default will return true.
      */
     bool onConnParamsUpdateRequest(NimBLEClient* pClient, const ble_gap_upd_params* params) {
-        if(params->itvl_min < 24) { /** 1.25ms units */
-            return false;
-        } else if(params->itvl_max > 40) { /** 1.25ms units */
-            return false;
-        } else if(params->latency > 2) { /** Number of intervals allowed to skip */
-            return false;
-        } else if(params->supervision_timeout > 100) { /** 10ms units */
-            return false;
-        }
+        // if(params->itvl_min < 24) { /** 1.25ms units */
+        //     return false;
+        // } else if(params->itvl_max > 40) { /** 1.25ms units */
+        //     return false;
+        // } else if(params->latency > 2) { /** Number of intervals allowed to skip */
+        //     return false;
+        // } else if(params->supervision_timeout > 100) { /** 10ms units */
+        //     return false;
+        // }
 
         return true;
     };
@@ -162,7 +166,7 @@ bool connectToServer() {
 
         // https://h2zero.github.io/esp-nimble-cpp/class_nim_b_l_e_client.html#a17718339f76eb621db0d7919c73b9267
         //  Min interval: 12 * 1.25ms = 15, Max interval: 12 * 1.25ms = 15, 0 latency, 51 * 10ms = 510ms timeout
-        pClient->setConnectionParams(12,12,0, 300);
+        pClient->setConnectionParams(240,400,0, 600);
         // 接続完了するまでのタイムアウト[seconds]
         pClient->setConnectTimeout(5);
 
@@ -187,6 +191,8 @@ bool connectToServer() {
     Serial.print("RSSI: ");
     Serial.println(pClient->getRssi());
 
+    
+
     p_ssms_env->ssm.device_status = SSM_CONNECTED;        // set the device status
     p_ssms_env->ssm.conn_id = pClient->getConnId(); // save the connection handle
 
@@ -197,6 +203,7 @@ bool connectToServer() {
 int ssm_enable_notify(void){
     NimBLERemoteService* pSvc = nullptr;
     NimBLERemoteCharacteristic* pChr = nullptr;
+    NimBLERemoteCharacteristic* pChr_w = nullptr;
     NimBLERemoteDescriptor* pDsc = nullptr;
 
     int rc;
@@ -205,34 +212,48 @@ int ssm_enable_notify(void){
 
     pSvc = pClient->getService(ssm_svc_uuid);
     if(!pSvc){
-      Serial.printf("failed to get service\n");
+      ESP_LOGE(TAG, "failed to get service");
       goto err;
     }
+    
     pChr = pSvc->getCharacteristic(ssm_ntf_uuid);
     if(!pChr){
-      Serial.printf("failed to get characteristic\n");
+      ESP_LOGE(TAG, "failed to get characteristic");
       goto err;
     }
 
-    pDsc = pChr->getDescriptor(ssm_dsc_uuid);
-    if(!pDsc){
-      Serial.printf("failed to get descriptor\n");
+    // write 用の characteristic の handle を取得しておく
+    pChr_w = pSvc->getCharacteristic(ssm_chr_uuid);
+    if(!pChr_w){
+      ESP_LOGE(TAG, "failed to get characteristic to write");
       goto err;
     }
+    ssm_chr_handle = pChr_w->getHandle();
+    ESP_LOGD(TAG, "Characteristic handle: %d\n", ssm_chr_handle);
 
-    rc = pDsc->writeValue(value, true);
+
+    // Descriptor に値を書き込んで notify を有効化する場合は以下のように 0x01, 0x00 を書き込む
+    // pDsc = pChr->getDescriptor(ssm_dsc_uuid);
+    // if(!pDsc){
+    //   ESP_LOGE(TAG, "failed to get descriptor");
+    //   goto err;
+    // }
+
+    // rc = pDsc->writeValue(value, true);
+    // if(!rc){
+    //   ESP_LOGE(TAG, "failed to write to descriptor");
+    //   goto err;
+    // }
+
+    rc = pChr->subscribe(true, notifyCB, true);
     if(!rc){
-      Serial.printf("failed to subscribe to characteristic\n");
+      ESP_LOGE.printf("TAG, failed to subscribe to characteristic");
       goto err;
     }
 
-    rc = pChr->registerForNotify(notifyCB, true, true);
-    if(!rc){
-      Serial.printf("failed to subscribe to characteristic\n");
-      goto err;
-    }
+    ESP_LOGI(TAG, "Enable notify Succesfully!");
 
-    Serial.printf("Enable notify Succesfully!\n");
+
     return 1;
 err:
     return pClient->disconnect();
@@ -257,58 +278,45 @@ void esp_ble_init(){
 
     // sesameSDKと合わせている。blecent_scan(void)
     //https://h2zero.github.io/esp-nimble-cpp/class_nim_b_l_e_scan.html
-
     pScan->setDuplicateFilter(true);
-    pScan->setActiveScan(true);
-    pScan->setInterval(45);
-    pScan->setWindow(15);
-    pScan->setFilterPolicy(0); //ここらへんいじれば接続速度変わりそう
+    pScan->setActiveScan(false);
+    pScan->setInterval(0);
+    pScan->setWindow(0);
+    pScan->setFilterPolicy(0);
     pScan->setLimitedOnly(false);
 
     // sesameSDKではデバイス検出とスキャン終了のコールバックは統合されているが、ArduinoIDEは違う模様
-    Serial.printf("Starting Scan\n");
     pScan->start(scanTime, scanEndedCB);
 }
 
 
 void esp_ble_gatt_write(sesame * ssm, uint8_t * value, uint16_t length) {
-    NimBLERemoteService* pSvc = nullptr;
     NimBLERemoteCharacteristic* pChr = nullptr;
 
     if (!pClient || !pClient->isConnected()) {
-        Serial.println("Client not connected");
-        return;
+        ESP_LOGE(TAG, "Client not connected");
+        goto err;
     }
 
-    pSvc = pClient->getService(ssm_svc_uuid);
-    if(!pSvc){
-      Serial.printf("failed to get service\n");
-      return;
-    }
-    Serial.printf("got service\n");
-
-    pChr = pSvc->getCharacteristic(ssm_chr_uuid);
-    Serial.printf("ここ\n");
+    ESP_LOGD(TAG, "Attempting to get characteristic with handle: %d\n", ssm_chr_handle);
+    pChr = pClient->getCharacteristic(ssm_chr_handle);
     if(!pChr){
-      Serial.printf("failed to get characteristic\n");
-      return;
-    }
-    Serial.printf("got chr");
-
-    Serial.printf("write\n");
-    int rc = pChr->writeValue(value, true);
-    if (rc != 0) {
-        Serial.printf("Error: Failed to write to the characteristic; rc=%d\n", rc);
-        return;
+      ESP_LOGE(TAG, "failed to get characteristic");
+      goto err;
     }
 
-    Serial.printf("write succeded\n");
-    Serial.printf("\n");
-    for(int i=0; i<length; i++){
-      Serial.printf("%X", value[i]);
-    }
-    Serial.printf("\n");
+    ESP_LOGI(TAG, "%s", pChr->toString().c_str());
+
+    // for(int i=0; i<length; i++){
+    //   Serial.printf("%02X,", value[i]);
+    // }
+    // Serial.printf("\n");
+
+    // write charasteristic への書き込みは、responseがされない。戻り値は必ず1になるので、エラーと処理してはいけない。（たぶん）
+    pChr->writeValue(value, length, false);
     return;
+err:
+    return pClient->disconnect();
 }
 
 
@@ -340,11 +348,9 @@ void loop (){
     doConnect = false;
 
     // 接続する
-    Serial.printf("Connect SSM addr=%s addrType=%d\n", advDevice->getAddress().toString().c_str(), advDevice->getAddressType());
+    ESP_LOGI(TAG, "Connect SSM addr=%s addrType=%d\n", advDevice->getAddress().toString().c_str(), advDevice->getAddressType());
     if(connectToServer()) {
-        if(ssm_enable_notify()){
-            send_login_cmd_to_ssm(&p_ssms_env->ssm);
-        }
+        ssm_enable_notify();
     } else {
         Serial.println("Failed to connect, starting scan");
         NimBLEDevice::getScan()->start(scanTime, scanEndedCB);
